@@ -174,7 +174,20 @@ class Model(nn.Module):
             configs.d_model, self.patch_len, self.stride, configs.dropout)
 
         self.word_embeddings = self.llm_model.get_input_embeddings().weight
-        self.vocab_size = self.word_embeddings.shape[0]
+        # --- DEBUG A ---------------------------------------------------------
+        print("DEBUG A │ embedding weight",
+            self.word_embeddings.shape,
+            "| llm_config.vocab_size:", self.llm_model.config.vocab_size,
+            "| len(tokenizer):", len(self.tokenizer))
+        # assert self.word_embeddings.shape[0] > 0, \
+        #     "Embedding table is empty – check model/tokenizer download!"
+        # --------------------------------------------------------------------
+        print("DEBUG A2 │ hidden_size:", getattr(self.llm_model.config, "hidden_size", None),
+              "| first_param_nel:", sum(p.numel() for p in self.llm_model.parameters()))
+
+        self.llm_model.gradient_checkpointing_enable()
+        self.vocab_size = len(self.tokenizer)
+        # self.vocab_size = self.word_embeddings.shape[0]
         self.num_tokens = 1000
         self.mapping_layer = nn.Linear(self.vocab_size, self.num_tokens)
 
@@ -198,6 +211,15 @@ class Model(nn.Module):
         return None
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
+
+        if not hasattr(self, "_dbg"):
+            import torch.distributed as dist
+            rank = dist.get_rank() if dist.is_initialized() else 0
+            print(f"DEBUG 3 | rank {rank} ─ word_embeddings {self.word_embeddings.shape}  "
+                f"→ after permute {(self.word_embeddings.permute(1, 0)).shape}  "
+                f"| mapping_layer local weight {self.mapping_layer.weight.shape}  "
+                f"| ds_shape {getattr(self.mapping_layer.weight, 'ds_shape', 'n/a')}")
+            self._dbg = True  # only print once per rank
 
         x_enc = self.normalize_layers(x_enc, 'norm')
 
